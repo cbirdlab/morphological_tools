@@ -1,0 +1,64 @@
+normalizeCharacter <-
+  function(data,
+           character,
+           # character = "width_cm",
+           normalize_by,
+           # normalize_by = "length_cm",
+           # a_start = 0.5,
+           # b_start = 1,
+           new_col_name = str_c(character,
+                                "_normalized")){
+    
+    # estimate a and b values
+    # https://www.statology.org/power-regression-in-r/
+    # nls was throwing errors and this uses lm + transforms to solve
+    # answers are slightly diff between lm and nls, so lm produces starting vals for nls
+    allometric_formula_lm <- 
+      as.formula(str_c("log(",
+                       character,
+                       ") ~ log(",
+                       normalize_by,
+                       ")"))
+    model_lm <-
+      lm(allometric_formula_lm,
+         data = data)
+    
+    a_start <- exp(model_lm$coefficients[1])
+    b_start <- model_lm$coefficients[2]
+    
+    # need to use variables to dynamically set formula 
+    # https://stackoverflow.com/questions/55877110/pass-dynamically-variable-names-in-lm-formula-inside-a-function
+    allometric_formula_nls <-
+      as.formula(str_c(character,
+                       " ~ a * ",
+                       normalize_by,
+                       "^b"))
+    
+    
+    # # use non linear model to estimate coefficient b
+    model_nls <-
+      nls(allometric_formula_nls,
+          start = list(a = a_start,
+                       b = b_start),
+          data = data)
+    
+    b <- summary(model_nls)$parameters["b", "Estimate"]
+    
+    # add column with normalized measure
+    # can set column name from variable as long as it's a quosure and we use :=   
+    # https://stackoverflow.com/questions/26003574/use-dynamic-name-for-new-column-variable-in-dplyr
+    # use sym() to coerce a character variable to a quosure 
+    # https://github.com/r-lib/rlang/issues/116
+    data %>%
+      dplyr::mutate(
+        !!sym(new_col_name) := 
+          !!sym(character) * 
+          (mean(!!sym(normalize_by),
+                na.rm = TRUE) / 
+             !!sym(normalize_by)) ^
+          b,
+        
+      ) #%>%
+    #for trouleshooting
+    # pull(!!sym(new_col_name))
+  }
